@@ -1,0 +1,1 @@
+/usr/bin/c++  -g   CMakeFiles/OS_P3.dir/main.cpp.o CMakeFiles/OS_P3.dir/wadfs/wad.cpp.o  -o OS_P3 

@@ -1,0 +1,40 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/mnt/c/Users/juanh/CLionProjects/OS_P3/main.cpp
+iostream
+-
+vector
+-
+wadfs/wad.h
+/mnt/c/Users/juanh/CLionProjects/OS_P3/wadfs/wad.h
+
+/mnt/c/Users/juanh/CLionProjects/OS_P3/wadfs/wad.cpp
+utility
+-
+fstream
+-
+cstdio
+-
+cstring
+-
+iostream
+-
+wad.h
+/mnt/c/Users/juanh/CLionProjects/OS_P3/wadfs/wad.h
+
+/mnt/c/Users/juanh/CLionProjects/OS_P3/wadfs/wad.h
+string
+-
+vector
+-
+list
+-
+unordered_map
+-
+
