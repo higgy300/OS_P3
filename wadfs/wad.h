@@ -14,7 +14,8 @@ class Wad {
 private:
     Wad(unordered_map<string, int> map, unordered_map<int, int> unorderedMap,
             unordered_map<int, vector<pair<string, int>>> map1, unordered_map<int, int> map2, unordered_map<int, int> map3,
-            unordered_map<int, int> map4, string str, unsigned long dCount, unsigned long dOffset, unordered_map<string, int>_fN);
+            unordered_map<int, int> map4, string str, unsigned long dCount, unsigned long dOffset,
+            unordered_map<string, int>_fN, char* _ddata);
 
     unordered_map<string, int> folderName;
     unordered_map<int, int> folderType;
@@ -23,6 +24,7 @@ private:
     unordered_map<int, int> fileSize;
     unordered_map<int, int> fileOffset;
     unordered_map<string, int> fileName;
+    char* rawData;
     unsigned long descriptorCount;
     unsigned long descriptorOffset;
     string magicType;

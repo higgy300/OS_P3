@@ -27,7 +27,7 @@
 Wad::Wad(unordered_map<string, int> _name, unordered_map<int, int> _type,
          unordered_map<int, vector<pair<string, int>>> _content, unordered_map<int, int> _parent,
          unordered_map<int, int> _size, unordered_map<int, int> _offset, string _magic, unsigned long _dCount,
-         unsigned long _dOffset, unordered_map<string, int> _fileN) {
+         unsigned long _dOffset, unordered_map<string, int> _fileN, char* __data) {
     folderName = std::move(_name);
     folderType = std::move(_type);
     folderContent = std::move(_content);
@@ -38,6 +38,7 @@ Wad::Wad(unordered_map<string, int> _name, unordered_map<int, int> _type,
     descriptorOffset = _dOffset;
     descriptorCount = _dCount;
     fileName = std::move(_fileN);
+    rawData = __data;
 }
 
 Wad *Wad::loadWad(const std::string &path) {
@@ -211,6 +212,7 @@ Wad *Wad::loadWad(const std::string &path) {
                         // If it does, update the count for the 10 files it is supposed
                         // to have
                         if (mapMarker) {
+                            cout << eOffset << " " << eLength << " " << eName << endl;
                             ++mapMarkerCount;
                             if (mapMarkerCount == 10) {
                                 mapMarker = false;
@@ -229,7 +231,8 @@ Wad *Wad::loadWad(const std::string &path) {
         }
         cout << endl;
         _obj = new Wad(_folder_name, _folder_type, _folder_content,
-                       _folder_parent, _file_size, _file_offset, magic, _descriptorCount, _descriptorOffset, _file_name);
+                       _folder_parent, _file_size, _file_offset, magic, _descriptorCount,
+                       _descriptorOffset, _file_name, rawWadBuffer);
     }
     return (initialized) ? _obj : nullptr;
 }
@@ -378,11 +381,137 @@ int Wad::getSize(const std::string &path) {
 }
 
 int Wad::getContents(const std::string &path, char *buffer, int length, int offset) {
-    return 0;
+    if (offset > 0) {
+
+        for (int i = offset; i < offset + length; i++)
+            buffer += rawData[i];
+        return length;
+    }
+
+    // Check if path is content. If it is, retrieve list of words and grab last one
+    // and look it up on hash table
+    if (isContent(path)) {
+        // Container to use to store words after removing demiliter '/'
+        vector<string> names;
+        string placeholder = "";
+
+        // Build words located between '/' and add them to the list
+        for (char ch : path) {
+            if (ch == '/') {
+                if (!placeholder.empty()) {
+                    names.push_back(placeholder);
+                    placeholder = "";
+                }
+            } else
+                placeholder += ch;
+
+        }
+        // Check for lingering word
+        if (!placeholder.empty())
+            names.push_back(placeholder);
+
+        // Do hash table lookup of last word and retrieve content
+        string name = names[names.size() - 1];
+        auto idItr = fileName.find(name);
+        int _id_ = idItr->second;
+        auto sizeItr = fileSize.find(_id_);
+        auto _size_ = static_cast<unsigned long>(sizeItr->second);
+        auto offsetItr = fileOffset.find(_id_);
+        auto _offset_ = static_cast<unsigned long>(offsetItr->second);
+
+        // format offset and size to little-endianness
+        _offset_ = (_offset_ << 24) |  ((_offset_ << 8) & 0x00FF0000) |
+                ((_offset_ >> 8) & 0x0000FF00) | (_offset_ >> 24);
+        _size_ = (_size_ << 24) |  ((_size_ << 8) & 0x00FF0000) |
+                 ((_size_ >> 8) & 0x0000FF00) | (_size_ >> 24);
+
+        // Cast it to be able to store it in the buffer
+        unsigned char* const offsetArr = reinterpret_cast<unsigned char* const>(&_offset_);
+        unsigned char* const sizeArr = reinterpret_cast<unsigned char* const>(&_size_);
+
+        // Store it in the buffer
+        int size = static_cast<int>(8 + name.length());
+        buffer = new char[size];
+
+        unsigned char temp;
+        temp = offsetArr[3];
+        offsetArr[3] = offsetArr[0];
+        offsetArr[0] = temp;
+        temp = offsetArr[2];
+        offsetArr[2] = offsetArr[1];
+        offsetArr[1] = temp;
+
+        temp = sizeArr[3];
+        sizeArr[3] = sizeArr[0];
+        sizeArr[0] = temp;
+        temp = sizeArr[2];
+        sizeArr[2] = sizeArr[1];
+        sizeArr[1] = temp;
+
+
+        for (int i = 0; i < 4; i++) {
+            buffer[i] = offsetArr[i];
+            buffer[i + 4] = sizeArr[i];
+        }
+
+        for (int i = 0; i < name.length(); i++)
+            buffer[i + 8] = name[i];
+
+        return size;
+    } else
+        return -1;
 }
 
 int Wad::getDirectory(const std::string &path, std::vector<std::string> *directory) {
-    return 0;
+
+    if (!isDirectory(path))
+        return -1;
+    // Check if path is root folder
+    if (path.length() == 1) {
+        if (path[0] == '/') {
+            vector<pair<string, int>> temp;
+            auto itr = folderContent.find(0);
+            temp = itr->second;
+            for (auto &entry : temp) {
+                directory->push_back(entry.first);
+            }
+            return static_cast<int>(temp.size());
+        } else {
+            return -1;
+        }
+    }
+
+    // TODO: Convert from here to end of function to match what this function is supposed to do
+    // Container to use to store words after removing demiliter '/'
+    vector<string> names;
+    string placeholder = "";
+
+    // Build words located between '/' and add them to the list
+    for (char ch : path) {
+        if (ch == '/') {
+            if (!placeholder.empty()) {
+                names.push_back(placeholder);
+                placeholder = "";
+            }
+        } else
+            placeholder += ch;
+
+    }
+    // Check for lingering word
+    if (!placeholder.empty())
+        names.push_back(placeholder);
+
+    // Check every word in the list for existence in the hash table
+    // If any fail then return -1. Else check if last word is content.
+    auto itr = folderName.find(names[names.size() - 1]);
+    int _id_ = itr->second;
+    auto itrr = folderContent.find(_id_);
+    vector<pair<string, int>> temp;
+    temp = itrr->second;
+    for (auto &entry : temp) {
+        directory->push_back(entry.first);
+    }
+    return static_cast<int>(temp.size());
 }
 
 
