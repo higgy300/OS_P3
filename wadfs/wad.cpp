@@ -6,6 +6,10 @@
 
 #include <utility>
 
+#include <utility>
+
+#include <utility>
+
 //
 // Created by juanh on 3/23/2019.
 //
@@ -22,13 +26,18 @@
 
 Wad::Wad(unordered_map<string, int> _name, unordered_map<int, int> _type,
          unordered_map<int, vector<pair<string, int>>> _content, unordered_map<int, int> _parent,
-         unordered_map<int, int> _size, unordered_map<int, int> _offset) {
+         unordered_map<int, int> _size, unordered_map<int, int> _offset, string _magic, unsigned long _dCount,
+         unsigned long _dOffset, unordered_map<string, int> _fileN) {
     folderName = std::move(_name);
     folderType = std::move(_type);
     folderContent = std::move(_content);
     folderParent = std::move(_parent);
     fileSize = std::move(_size);
     fileOffset = std::move(_offset);
+    magicType = std::move(_magic);
+    descriptorOffset = _dOffset;
+    descriptorCount = _dCount;
+    fileName = std::move(_fileN);
 }
 
 Wad *Wad::loadWad(const std::string &path) {
@@ -42,6 +51,7 @@ Wad *Wad::loadWad(const std::string &path) {
     unordered_map<int, int> _folder_parent;
     unordered_map<int, int> _file_size;
     unordered_map<int, int> _file_offset;
+    unordered_map<string, int> _file_name;
 
     bool initialized = false;
 
@@ -84,10 +94,10 @@ Wad *Wad::loadWad(const std::string &path) {
             shiftAmount += 8;
         }
 
-        // Debug printing to see if file header is correct
+        /*// Debug printing to see if file header is correct
         std::cout << "Magic: " << magic << "\nDescriptor count: " << _descriptorCount
         << "\nOffset: " << _descriptorOffset << "\nFile length: " << len << std::endl;
-        std::cout << std::endl;
+        std::cout << std::endl; */
 
         // All these variables are to retrieve all map markers and namespace markers
         shiftAmount = 0;
@@ -105,13 +115,11 @@ Wad *Wad::loadWad(const std::string &path) {
         currentFolderName = "root";
         currentFolderID = folderID;
 
-        cout << "Offset\tLength\tName" << endl;
         for (int i = (int)_descriptorOffset; i < len; i++) {
             if (!eleOffFlag) {
                 eOffset |= (unsigned char) rawWadBuffer[i] << shiftAmount;
                 shiftAmount += 8;
                 if (shiftAmount == 32) {
-                    std::cout << eOffset << " ";
                     shiftAmount = 0;
                     eleOffFlag = true;
                     eleLenFlag = false;
@@ -122,7 +130,6 @@ Wad *Wad::loadWad(const std::string &path) {
                 eLength |= (unsigned char) rawWadBuffer[i] << shiftAmount;
                 shiftAmount += 8;
                 if (shiftAmount == 32) {
-                    std::cout << eLength << " ";
                     shiftAmount = 0;
                     eleLenFlag = true;
                     eleNameFlag = false;
@@ -135,7 +142,6 @@ Wad *Wad::loadWad(const std::string &path) {
                 eName += rawWadBuffer[i];
                 ++letterCount;
                 if (letterCount == 8) {
-                    std::cout << eName << std::endl;
                     letterCount = 0;
                     eleNameFlag = true;
                     eleOffFlag = false;
@@ -165,6 +171,9 @@ Wad *Wad::loadWad(const std::string &path) {
                             // Add new folder name to parent's folder content
                             _folder_content[parentID].emplace_back(make_pair(folder_name, ++fileID));
 
+                            // Add file name and file ID to its own hash table for quick random file lookup
+                            _file_name.insert(make_pair(folder_name, fileID));
+
                             // Update parent ID and current folder ID
                             parentID = currentFolderID;
                             currentFolderID = ++folderID;
@@ -192,6 +201,9 @@ Wad *Wad::loadWad(const std::string &path) {
                         _file_size.insert(make_pair(++fileID, eLength));
                         _file_offset.insert(make_pair(fileID, eOffset));
 
+                        // Add file name and file ID to its own hash table for quick random file lookup
+                        _file_name.insert(make_pair(eName, fileID));
+
                         // Add file to current folder's content space
                         _folder_content[currentFolderID].emplace_back(make_pair(eName, fileID));
 
@@ -217,25 +229,152 @@ Wad *Wad::loadWad(const std::string &path) {
         }
         cout << endl;
         _obj = new Wad(_folder_name, _folder_type, _folder_content,
-                       _folder_parent, _file_size, _file_offset);
+                       _folder_parent, _file_size, _file_offset, magic, _descriptorCount, _descriptorOffset, _file_name);
     }
     return (initialized) ? _obj : nullptr;
 }
 
 char *Wad::getMagic() {
-    return nullptr;
+    char* magic = new char[5];
+
+    for (int i = 0; i < magicType.length(); i++)
+        magic[i] = magicType[i];
+    magic[5] = '\0';
+
+    return magic;
 }
 
 bool Wad::isContent(const std::string &path) {
+    // check if path is root folder
+    if (path.length() == 1)
+        return false;
+
+    // Container to use to store words after removing demiliter '/'
+    vector<string> names;
+    string placeholder = "";
+
+    // Build words located between '/' and add them to the list
+    for (char ch : path) {
+        if (ch == '/') {
+            if (!placeholder.empty()) {
+                names.push_back(placeholder);
+                placeholder = "";
+            }
+        } else
+            placeholder += ch;
+
+    }
+    // Check for lingering word
+    if (!placeholder.empty())
+        names.push_back(placeholder);
+
+
+    // Check every word in the list for existence in the hash table
+    // If any fail then return -1. Else check if last word is content.
+    for (int i = 0; i < names.size(); i++) {
+        auto itr = folderName.find(names[i]);
+        // Check if word is folder
+        if (itr == folderName.end()) {
+            if (i == names.size() - 1) {
+                auto itrr = fileName.find(names[i]);
+                return !(itrr == fileName.end());
+            } else
+                return false;
+        } else {
+            if (i == names.size() - 1)
+                return false;
+        }
+    }
     return false;
 }
 
 bool Wad::isDirectory(const std::string &path) {
+    // Check if path is root folder
+    if (path.length() == 1)
+        return true;
+
+    // Container to use to store words after removing demiliter '/'
+    vector<string> names;
+    string placeholder = "";
+
+    // Build words located between '/' and add them to the list
+    for (char ch : path) {
+        if (ch == '/') {
+            if (!placeholder.empty()) {
+                names.push_back(placeholder);
+                placeholder = "";
+            }
+        } else
+            placeholder += ch;
+
+    }
+    // Check for lingering word
+    if (!placeholder.empty())
+        names.push_back(placeholder);
+
+    // Check every word in the list for existence in the hash table
+    // If any fail then return -1. Else check if last word is content.
+    for (int i = 0; i < names.size(); i++) {
+        auto itr = folderName.find(names[i]);
+        // Check if word is folder
+        if (itr == folderName.end()) {
+            return false;
+        } else {
+            if (i == names.size() - 1)
+                return true;
+        }
+    }
     return false;
 }
 
 int Wad::getSize(const std::string &path) {
-    return 0;
+    // check if path is root folder
+    if (path.length() == 1)
+        return -1;
+
+    // Container to use to store words after removing demiliter '/'
+    vector<string> names;
+    string placeholder = "";
+
+    // Build words located between '/' and add them to the list
+    for (char ch : path) {
+        if (ch == '/') {
+            if (!placeholder.empty()) {
+                names.push_back(placeholder);
+                placeholder = "";
+            }
+        } else
+            placeholder += ch;
+
+    }
+    // Check for lingering word
+    if (!placeholder.empty())
+        names.push_back(placeholder);
+
+
+    // Check every word in the list for existence in the hash table
+    // If any fail then return -1. Else check if last word is content.
+    for (int i = 0; i < names.size(); i++) {
+        auto itr = folderName.find(names[i]);
+        // Check if word is folder
+        if (itr == folderName.end()) {
+            if (i == names.size() - 1) {
+                auto itrr = fileName.find(names[i]);
+                if (itrr == fileName.end()) {
+                    return -1;
+                } else {
+                    int _id = itrr->second;
+                    auto itrrr = fileSize.find(_id);
+                    return itrrr->second;
+                }
+            } else
+                return -1;
+        } else {
+            if (i == names.size() - 1)
+                return -1;
+        }
+    }
+    return -1;
 }
 
 int Wad::getContents(const std::string &path, char *buffer, int length, int offset) {
